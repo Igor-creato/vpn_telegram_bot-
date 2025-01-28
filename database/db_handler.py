@@ -1,6 +1,7 @@
 # database/db_handler.py
 import psycopg2
 from config.db_config import DB_CONFIG
+from datetime import datetime
 
 class DatabaseHandler:
     def __init__(self):
@@ -31,6 +32,18 @@ class DatabaseHandler:
             (username, telegram_id, phone_number, email, name)
         )
         self.conn.commit()
+
+    def get_user_keys(self, telegram_id):
+        self.cur.execute(
+            """
+            SELECT link_key, expiration_date 
+            FROM keys 
+            WHERE telegram_id = %s 
+            ORDER BY expiration_date ASC
+            """,
+            (telegram_id,)
+        )
+        return self.cur.fetchall()
 
     def close(self):
         self.cur.close()

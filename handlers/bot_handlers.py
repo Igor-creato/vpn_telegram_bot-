@@ -2,6 +2,7 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from database.db_handler import DatabaseHandler
+from datetime import datetime
 
 class BotHandlers:
     def __init__(self):
@@ -15,21 +16,31 @@ class BotHandlers:
         last_name = user.last_name
         email = user.email if hasattr(user, 'email') else None
         phone_number = user.phone_number if hasattr(user, 'phone_number') else None
-        name = f"{first_name} {last_name}"
 
+        # Формируем имя для приветствия
+        if first_name and last_name:
+            name = f"{first_name} {last_name}"
+        elif first_name:
+            name = first_name
+        else:
+            name = username  # Если имя и фамилия отсутствуют, используем username
+
+        # Поиск пользователя в базе данных
         user_data = self.db.get_user(telegram_id)
         if user_data:
             self.db.update_user(telegram_id, username, phone_number, email, name)
         else:
             self.db.add_user(username, telegram_id, phone_number, email, name)
 
+        # Приветственное сообщение
         welcome_message = (
-            f"👤 Привет, {first_name} {last_name}\n"
+            f"👤 Привет, {name}\n"
             "🔗 Этот бот создает сверхбыстрое, неблокируемое ВПН (VPN) соединение.\n"
             "▶️ Забудь о тормозах, не грузящихся видео на Youtube.\n"
             "🌐 Добро пожаловать в открытый интернет."
         )
 
+        # Создание инлайн кнопок
         keyboard = [
             [InlineKeyboardButton("Получить новый ключ", callback_data='get_new_key')],
             [InlineKeyboardButton("Продлить ключ", callback_data='renew_key')],
@@ -48,4 +59,21 @@ class BotHandlers:
         elif query.data == 'renew_key':
             await query.edit_message_text(text="Вы выбрали: Продлить ключ")
         elif query.data == 'my_keys':
-            await query.edit_message_text(text="Вы выбрали: Мои ключи")
+            telegram_id = query.from_user.id
+            keys = self.db.get_user_keys(telegram_id)
+
+            if not keys:
+                await query.edit_message_text(text="У вас нет активных ключей.")
+                return
+
+            message = "Ваши ключи:\n\n"
+            for index, (link_key, expiration_date) in enumerate(keys, start=1):
+                time_left = expiration_date - datetime.now()
+                days = time_left.days
+                hours, remainder = divmod(time_left.seconds, 3600)
+                message += (
+                    f"{index}. Ключ: {link_key}\n"
+                    f"   Осталось {days} дней {hours} часов до истечения срока действия.\n\n"
+                )
+
+            await query.edit_message_text(text=message)
