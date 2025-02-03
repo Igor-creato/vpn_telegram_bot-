@@ -69,6 +69,27 @@ class DatabaseHandler:
         )
         self.conn.commit()
 
+    def delete_payment(self, payment_id):
+        self.cur.execute(
+            """
+            DELETE FROM pay 
+            WHERE payment_id = %s
+            """,
+            (payment_id,)
+        )
+        self.conn.commit()
+
+    def get_payment_by_uid(self, payment_uid):
+        self.cur.execute(
+            """
+            SELECT payment_id, amount, telegram_id 
+            FROM pay 
+            WHERE payment_uid = %s
+            """,
+            (payment_uid,)
+        )
+        return self.cur.fetchone()
+
     def get_last_payment(self, telegram_id):
         self.cur.execute(
             """
@@ -82,18 +103,17 @@ class DatabaseHandler:
         )
         return self.cur.fetchone()
 
+    def update_payment_status(self, payment_id, status):
+        self.cur.execute(
+            """
+            UPDATE pay 
+            SET status = %s 
+            WHERE payment_id = %s
+            """,
+            (status, payment_id)
+        )
+        self.conn.commit()
+
     def close(self):
         self.cur.close()
         self.conn.close()
-
-        # database/db_handler.py
-def update_payment_status(self, payment_id, status):
-    self.cur.execute(
-        """
-        UPDATE pay 
-        SET status = %s 
-        WHERE payment_id = %s
-        """,
-        (status, payment_id)
-    )
-    self.conn.commit()

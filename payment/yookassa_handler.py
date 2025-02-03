@@ -3,7 +3,7 @@ import uuid
 import yookassa
 from yookassa import Payment
 
-yookassa.Configuration.configure('1010483', 'test_RWBSm3xN9cRHklAMEzg00knoUv25iPdsM7omXyoFFUk')
+yookassa.Configuration.configure('1010483', 'test_FJXioO5_pc4olCr1-o0UYDSSrfD--l6gb93zOMqVUfA')
 
 def create_payment(amount, payment_id):
     idempotence_key = str(uuid.uuid4())
@@ -17,7 +17,7 @@ def create_payment(amount, payment_id):
             "return_url": "https://yourwebsite.com"
         },
         "capture": True,
-        "description": f"Оплата заказа №{payment_id}"
+        "description": f"Оплата заказа No{payment_id}"
     }, idempotence_key)
 
     return payment.confirmation.confirmation_url, payment.id
@@ -25,3 +25,4 @@ def create_payment(amount, payment_id):
 def check_payment_status(payment_id):
     payment = Payment.find_one(payment_id)
     return payment.status
+
