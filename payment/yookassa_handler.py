@@ -14,7 +14,7 @@ def create_payment(amount, payment_id):
         },
         "confirmation": {
             "type": "redirect",
-            "return_url": "https://yourwebsite.com"
+            "return_url": "https://t.me/testoviy765890_bot"
         },
         "capture": True,
         "description": f"Оплата заказа No{payment_id}"

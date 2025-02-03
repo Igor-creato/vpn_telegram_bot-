@@ -1,3 +1,4 @@
+import logging
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 import hmac
@@ -8,11 +9,21 @@ import os
 from telegram.ext import Application
 import asyncio
 
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    handlers=[
+        logging.FileHandler('webhook.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
 app = FastAPI()
 db = DatabaseHandler()
 
 WEBHOOK_SECRET = os.getenv('WEBHOOK_SECRET')
-BOT_TOKEN = os.getenv('BOT_TOKEN')
+BOT_TOKEN = "7753890665:AAHcwEnhlPkjN2XvBJWbmd1mOEL4Z39hmtM"
 
 async def get_bot():
     application = Application.builder().token(BOT_TOKEN).build()
@@ -23,40 +34,47 @@ async def get_bot():
 async def webhook_handler(request: Request):
     try:
         body = await request.body()
-        signature = request.headers.get('X-Signature')
+        notification = await request.json()
+        logger.info(f"Получен webhook запрос: {notification}")
         
-        hmac_obj = hmac.new(WEBHOOK_SECRET.encode(), body, hashlib.sha1)
-        calculated_signature = base64.b64encode(hmac_obj.digest()).decode()
+        payment_uid = notification['object']['id']
+        payment_status = notification['object']['status']
         
-        if signature and hmac.compare_digest(calculated_signature, signature):
-            notification = await request.json()
-            payment_uid = notification['object']['id']
-            payment_status = notification['object']['status']
+        logger.info(f"Payment UID: {payment_uid}, Status: {payment_status}")
+        
+        payment_info = db.get_payment_by_uid(payment_uid)
+        if payment_info:
+            payment_id, amount, telegram_id = payment_info
+            bot = await get_bot()
             
-            payment_info = db.get_payment_by_uid(payment_uid)
-            if payment_info:
-                payment_id, amount, telegram_id = payment_info
-                bot = await get_bot()
+            if payment_status == 'succeeded':
+                logger.info(f"Обновляем статус платежа {payment_id}")
+                db.update_payment_status(payment_id, 'succeeded')
                 
-                if payment_status == 'succeeded':
-                    db.update_payment_status(payment_id, 'succeeded')
+                try:
                     await bot.send_message(
                         chat_id=telegram_id,
                         text=f"Вы оплатили заказ No{payment_id} на сумму {amount} рублей"
                     )
-                else:
-                    db.delete_payment(payment_id)
+                    logger.info(f"Сообщение об оплате отправлено пользователю {telegram_id}")
+                except Exception as e:
+                    logger.error(f"Ошибка отправки сообщения: {str(e)}")
+                    return JSONResponse(
+                        status_code=500,
+                        content={"status": "error", "message": str(e)}
+                    )
+            else:
+                db.delete_payment(payment_id)
+                try:
                     await bot.send_message(
                         chat_id=telegram_id,
                         text=f"Заказ No{payment_id} не оплачен. Попробуйте еще раз или свяжитесь с поддержкой."
                     )
-            
-            return JSONResponse(content={"status": "ok"})
-        else:
-            return JSONResponse(
-                status_code=400,
-                content={"status": "error", "message": "Invalid signature"}
-            )
+                except Exception as e:
+                    logger.error(f"Ошибка отправки сообщения об отмене: {str(e)}")
+        
+        return JSONResponse(content={"status": "ok"})
+        
     except Exception as e:
         logger.error(f"Ошибка в webhook: {str(e)}", exc_info=True)
         return JSONResponse(

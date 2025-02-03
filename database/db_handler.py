@@ -1,8 +1,18 @@
 # database/db_handler.py
+import logging
 import psycopg2
 from config.db_config import DB_CONFIG
 from datetime import datetime
 
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    handlers=[
+        logging.FileHandler('database.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 class DatabaseHandler:
     def __init__(self):
         self.conn = psycopg2.connect(**DB_CONFIG)
@@ -80,15 +90,21 @@ class DatabaseHandler:
         self.conn.commit()
 
     def get_payment_by_uid(self, payment_uid):
-        self.cur.execute(
-            """
-            SELECT payment_id, amount, telegram_id 
-            FROM pay 
-            WHERE payment_uid = %s
-            """,
-            (payment_uid,)
-        )
-        return self.cur.fetchone()
+        try:
+            self.cur.execute(
+                """
+                SELECT payment_id, amount, telegram_id 
+                FROM pay 
+                WHERE payment_uid = %s
+                """,
+                (payment_uid,)
+            )
+            result = self.cur.fetchone()
+            logger.info(f"Payment info for UID {payment_uid}: {result}")
+            return result
+        except Exception as e:
+            logger.error(f"Ошибка получения платежа: {str(e)}")
+            return None
 
     def get_last_payment(self, telegram_id):
         self.cur.execute(
@@ -104,15 +120,20 @@ class DatabaseHandler:
         return self.cur.fetchone()
 
     def update_payment_status(self, payment_id, status):
-        self.cur.execute(
-            """
-            UPDATE pay 
-            SET status = %s 
-            WHERE payment_id = %s
-            """,
-            (status, payment_id)
-        )
-        self.conn.commit()
+        try:
+            self.cur.execute(
+                """
+                UPDATE pay 
+                SET status = %s 
+                WHERE payment_id = %s
+                """,
+                (status, payment_id)
+            )
+            self.conn.commit()
+            logger.info(f"Статус платежа {payment_id} обновлен на {status}")
+        except Exception as e:
+            logger.error(f"Ошибка обновления статуса платежа: {str(e)}")
+            self.conn.rollback()
 
     def close(self):
         self.cur.close()
