@@ -2,7 +2,8 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from database.db_handler import DatabaseHandler
-from datetime import datetime
+from payment.yookassa_handler import create_payment, check_payment_status
+from datetime import datetime, timedelta
 
 class BotHandlers:
     def __init__(self):
@@ -17,22 +18,19 @@ class BotHandlers:
         email = user.email if hasattr(user, 'email') else None
         phone_number = user.phone_number if hasattr(user, 'phone_number') else None
 
-        # Формируем имя для приветствия
         if first_name and last_name:
             name = f"{first_name} {last_name}"
         elif first_name:
             name = first_name
         else:
-            name = username  # Если имя и фамилия отсутствуют, используем username
+            name = username
 
-        # Поиск пользователя в базе данных
         user_data = self.db.get_user(telegram_id)
         if user_data:
             self.db.update_user(telegram_id, username, phone_number, email, name)
         else:
             self.db.add_user(username, telegram_id, phone_number, email, name)
 
-        # Приветственное сообщение
         welcome_message = (
             f"👤 Привет {name}\n"
             "🔗 Этот бот создает сверхбыстрое, неблокируемое ВПН (VPN) соединение.\n"
@@ -40,11 +38,11 @@ class BotHandlers:
             "🌐 Добро пожаловать в открытый интернет."
         )
 
-        # Создание инлайн кнопок
         keyboard = [
             [InlineKeyboardButton("Получить новый ключ", callback_data='get_new_key')],
             [InlineKeyboardButton("Продлить ключ", callback_data='renew_key')],
-            [InlineKeyboardButton("Мои ключи", callback_data='my_keys')]
+            [InlineKeyboardButton("Мои ключи", callback_data='my_keys')],
+            [InlineKeyboardButton("Проверить статус оплаты", callback_data='check_payment')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -59,7 +57,6 @@ class BotHandlers:
             keys = self.db.get_user_keys(telegram_id)
 
             if not keys:
-                # Если ключей нет, выводим меню с кнопками для покупки нового ключа
                 keyboard = [
                     [InlineKeyboardButton("💵 1 месяц 150 руб.", callback_data='buy_1_month')],
                     [InlineKeyboardButton("💵 3 месяца 400 руб.", callback_data='buy_3_months')],
@@ -69,7 +66,6 @@ class BotHandlers:
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await query.edit_message_text(text="Выберите срок действия ключа:", reply_markup=reply_markup)
             else:
-                # Если ключи есть, предлагаем получить еще один или продлить старый
                 keyboard = [
                     [InlineKeyboardButton("Получить еще один ключ", callback_data='get_another_key')],
                     [InlineKeyboardButton("Продлить старый ключ", callback_data='renew_existing_key')]
@@ -81,7 +77,6 @@ class BotHandlers:
                 )
 
         elif query.data == 'get_another_key':
-            # Если пользователь выбрал "Получить еще один ключ", выводим меню с кнопками для покупки нового ключа
             keyboard = [
                 [InlineKeyboardButton("💵 1 месяц 150 руб.", callback_data='buy_1_month')],
                 [InlineKeyboardButton("💵 3 месяца 400 руб.", callback_data='buy_3_months')],
@@ -99,7 +94,6 @@ class BotHandlers:
                 await query.edit_message_text(text="У вас нет активных ключей для продления.")
                 return
 
-            # Формируем сообщение с ключами
             message = "Ваши ключи:\n\n"
             keyboard = []
             for index, (link_key, expiration_date) in enumerate(keys, start=1):
@@ -121,8 +115,7 @@ class BotHandlers:
             )
 
         elif query.data.startswith('renew_key_'):
-            # Обработка выбора ключа для продления
-            key_index = int(query.data.split('_')[-1]) - 1  # Получаем индекс ключа
+            key_index = int(query.data.split('_')[-1]) - 1
             telegram_id = query.from_user.id
             keys = self.db.get_user_keys(telegram_id)
 
@@ -130,7 +123,6 @@ class BotHandlers:
                 await query.edit_message_text(text="Ошибка: выбран неверный ключ.")
                 return
 
-            # Выводим меню для выбора срока продления
             keyboard = [
                 [InlineKeyboardButton("💵 1 месяц 150 руб.", callback_data=f'extend_1_month_{key_index}')],
                 [InlineKeyboardButton("💵 3 месяца 400 руб.", callback_data=f'extend_3_months_{key_index}')],
@@ -144,10 +136,9 @@ class BotHandlers:
             )
 
         elif query.data.startswith('extend_'):
-            # Обработка выбора срока продления
             parts = query.data.split('_')
-            period = parts[1]  # 1_month, 3_months и т.д.
-            key_index = int(parts[-1])  # Индекс ключа
+            period = parts[1]
+            key_index = int(parts[-1])
 
             telegram_id = query.from_user.id
             keys = self.db.get_user_keys(telegram_id)
@@ -156,11 +147,20 @@ class BotHandlers:
                 await query.edit_message_text(text="Ошибка: выбран неверный ключ.")
                 return
 
-            # Здесь можно добавить логику для продления ключа в базе данных
             selected_key = keys[key_index]
             await query.edit_message_text(
                 text=f"Вы выбрали продление ключа на {period}. Ключ: `{selected_key[0]}`",
                 parse_mode="Markdown"
+            )
+
+            # Создание платежа
+            amount = self.get_amount_by_period(period)
+            payment_id = self.db.add_payment(telegram_id, amount)
+            payment_url, payment_uid = create_payment(amount, payment_id)
+            self.db.update_payment(payment_id, payment_uid)
+
+            await query.edit_message_text(
+                text=f"Ссылка для оплаты: {payment_url}"
             )
 
         elif query.data == 'my_keys':
@@ -184,4 +184,43 @@ class BotHandlers:
             await query.edit_message_text(
                 text=message,
                 parse_mode="Markdown"
+            )
+
+        elif query.data == 'check_payment':
+            await self.check_payment(update, context)
+
+    def get_amount_by_period(self, period):
+        if period == '1_month':
+            return 150
+        elif period == '3_months':
+            return 400
+        elif period == '6_months':
+            return 715
+        elif period == '1_year':
+            return 1200
+        else:
+            return 0
+
+    async def check_payment(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        query = update.callback_query
+        await query.answer()
+
+        telegram_id = query.from_user.id
+        last_payment = self.db.get_last_payment(telegram_id)
+
+        if not last_payment:
+            await query.edit_message_text(text="У вас нет активных платежей.")
+            return
+
+        payment_id, amount = last_payment
+        status = check_payment_status(payment_id)
+
+        if status == 'succeeded':
+            self.db.update_payment_status(payment_id, status)
+            await query.edit_message_text(
+                text=f"Вы оплатили заказ №{payment_id} на сумму {amount} руб."
+            )
+        else:
+            await query.edit_message_text(
+                text=f"Оплата заказа №{payment_id} еще не завершена."
             )

@@ -45,6 +45,55 @@ class DatabaseHandler:
         )
         return self.cur.fetchall()
 
+    def add_payment(self, telegram_id, amount):
+        self.cur.execute(
+            """
+            INSERT INTO pay (telegram_id, amount) 
+            VALUES (%s, %s) 
+            RETURNING payment_id
+            """,
+            (telegram_id, amount)
+        )
+        payment_id = self.cur.fetchone()[0]
+        self.conn.commit()
+        return payment_id
+
+    def update_payment(self, payment_id, payment_uid):
+        self.cur.execute(
+            """
+            UPDATE pay 
+            SET payment_uid = %s 
+            WHERE payment_id = %s
+            """,
+            (payment_uid, payment_id)
+        )
+        self.conn.commit()
+
+    def get_last_payment(self, telegram_id):
+        self.cur.execute(
+            """
+            SELECT payment_id, amount 
+            FROM pay 
+            WHERE telegram_id = %s 
+            ORDER BY payment_id DESC 
+            LIMIT 1
+            """,
+            (telegram_id,)
+        )
+        return self.cur.fetchone()
+
     def close(self):
         self.cur.close()
         self.conn.close()
+
+        # database/db_handler.py
+def update_payment_status(self, payment_id, status):
+    self.cur.execute(
+        """
+        UPDATE pay 
+        SET status = %s 
+        WHERE payment_id = %s
+        """,
+        (status, payment_id)
+    )
+    self.conn.commit()
